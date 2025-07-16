@@ -44,7 +44,7 @@ You will see a small toolbar at the top-right of the page with two buttons:
 - **Match URL**: `https://cvcholdings.ecmserp.com/ecms/*`
 - **Storage**: Data is saved using `localStorage` in your browser
 - **Compatibility**: Works only on the timecard page where the form ID is `form1:subfile`
-- **Version**: 6.3
+- **Version**: 8.4
 
 ## Limitations
 

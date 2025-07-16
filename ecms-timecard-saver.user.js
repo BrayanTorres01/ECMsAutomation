@@ -1,165 +1,139 @@
 // ==UserScript==
-// @name         eCMS Timecard Saver (Auto OK Only)
+// @name         eCMS Timecard Saver
 // @namespace    http://tampermonkey.net/
-// @version      6.3
-// @description  Save and paste all timecard rows, then press OK automatically on eCMS Payroll screen (no Control button logic included). Author: Brayan
+// @version      8.4
+// @description  Saves & pastes selected fields in timecard. Mouse Button 4 = Paste, 5 = Save. Author: Brayan
 // @author       Brayan
 // @match        https://cvcholdings.ecmserp.com/ecms/*
 // @grant        none
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
+
+    const STORAGE_KEY = "savedTimecard";
+    const FIELD_INDEXES_TO_COPY = [0, 1, 2, 3, 4, 5, 6, 7];
 
     function log(msg) {
         console.log('[eCMS Timecard Saver] ' + msg);
     }
 
     function saveTimecard() {
-        let table = document.querySelector("#form1\\:subfile");
-        if (!table) {
-            alert("Timecard table not found.");
-            return;
-        }
+        const table = document.querySelector("#form1\\:subfile");
+        if (!table) return alert("Timecard table not found.");
 
-        let timecardData = [];
-        let rows = table.querySelectorAll("tbody tr");
+        const timecardData = [];
+        const rows = table.querySelectorAll("tbody tr");
 
-        rows.forEach((row, rowIndex) => {
-            let rowData = [];
-            let fields = row.querySelectorAll("td input:not([type='hidden']), td select");
-
-            if (fields.length === 0) return;
-
-            fields.forEach(field => {
-                rowData.push(field.value.trim());
+        rows.forEach(row => {
+            const fields = row.querySelectorAll("td input:not([type='hidden']), td select");
+            const rowData = [];
+            FIELD_INDEXES_TO_COPY.forEach(i => {
+                if (fields[i]) rowData.push(fields[i].value.trim());
             });
-
-            if (rowData.length > 0) {
-                timecardData.push(rowData);
-                log(`Row ${rowIndex + 1} saved (${rowData.length} inputs): ${JSON.stringify(rowData)}`);
-            }
+            if (rowData.length > 0) timecardData.push(rowData);
         });
 
-        if (timecardData.length === 0) {
-            alert("No timecard data found to save.");
-            return;
-        }
+        if (timecardData.length === 0) return alert("No data found to save.");
 
-        localStorage.removeItem("savedTimecard");
-        localStorage.setItem("savedTimecard", JSON.stringify(timecardData));
-        alert("Timecard saved successfully.");
-        log(`Saved JSON data: ${JSON.stringify(timecardData)}`);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(timecardData));
+        alert("Selected fields saved successfully.");
+        log("Saved selective data to localStorage.");
 
-        // Click OK button only
-        let okBtn = document.querySelector("#form1\\:CFEN");
-        if (okBtn) {
-            log("Clicking OK button after save...");
-            okBtn.click();
-        } else {
-            log("OK button not found.");
+        const okBtn = document.querySelector("#form1\\:CFEN");
+        if (okBtn) okBtn.click();
+    }
+
+    function parseSavedData(raw) {
+        try {
+            let parsed = JSON.parse(raw);
+            if (typeof parsed === 'string') parsed = JSON.parse(parsed); // double-parsed case
+            if (!Array.isArray(parsed)) throw new Error("Data is not an array");
+            return parsed;
+        } catch (e) {
+            localStorage.removeItem(STORAGE_KEY);
+            alert("Saved data was invalid. It has been cleared.");
+            console.error("Parsing error:", e.message);
+            return null;
         }
     }
 
     function pasteTimecard() {
-        let table = document.querySelector("#form1\\:subfile");
-        if (!table) {
-            alert("Timecard table not found.");
-            return;
-        }
+        const table = document.querySelector("#form1\\:subfile");
+        if (!table) return alert("Timecard table not found.");
 
-        let savedData = localStorage.getItem("savedTimecard");
-        if (!savedData) {
-            alert("No saved timecard found.");
-            return;
-        }
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return alert("No saved timecard found.");
 
-        try {
-            log("Raw saved data before parsing: " + savedData);
-            let parsedData = JSON.parse(savedData);
+        const parsedData = parseSavedData(raw);
+        if (!parsedData) return;
 
-            if (typeof parsedData === "string") {
-                parsedData = JSON.parse(parsedData);
-                log("Parsed data was double-stringified. Parsed again.");
-            }
-
-            if (!Array.isArray(parsedData)) {
-                throw new Error("Parsed data is not an array.");
-            }
-
-            let rows = table.querySelectorAll("tbody tr");
-
-            parsedData.forEach((savedRow, rowIndex) => {
-                let row = rows[rowIndex];
-                if (!row) return;
-
-                let inputs = row.querySelectorAll("td input:not([type='hidden']), td select");
-
-                if (savedRow.length !== inputs.length) {
-                    log(`Row ${rowIndex + 1} field mismatch: saved ${savedRow.length}, found ${inputs.length}`);
-                    return;
+        const rows = table.querySelectorAll("tbody tr");
+        parsedData.forEach((savedRow, rowIndex) => {
+            const row = rows[rowIndex];
+            if (!row) return;
+            const fields = row.querySelectorAll("td input:not([type='hidden']), td select");
+            FIELD_INDEXES_TO_COPY.forEach((i, j) => {
+                if (fields[i] && savedRow[j] !== undefined) {
+                    fields[i].value = savedRow[j];
                 }
-
-                savedRow.forEach((value, inputIndex) => {
-                    if (inputs[inputIndex]) {
-                        inputs[inputIndex].value = value;
-                    }
-                });
-
-                log(`Row ${rowIndex + 1} pasted successfully.`);
             });
+        });
 
-            alert(`${parsedData.length} rows pasted successfully.`);
-        } catch (error) {
-            localStorage.removeItem("savedTimecard");
-            alert("Invalid timecard data format. Saved data has been cleared.");
-            console.error("Error parsing data: " + error.message);
-        }
+        alert(`${parsedData.length} rows pasted successfully.`);
     }
 
     function addButtons() {
         if (document.getElementById("ecms-timecard-toolbar")) return;
 
-        let header = document.body;
+        const container = document.createElement("div");
+        container.id = "ecms-timecard-toolbar";
+        container.style.position = "fixed";
+        container.style.top = "10px";
+        container.style.right = "10px";
+        container.style.zIndex = "9999";
+        container.style.background = "white";
+        container.style.padding = "10px";
+        container.style.border = "2px solid black";
+        container.style.borderRadius = "5px";
+        container.style.boxShadow = "2px 2px 10px rgba(0,0,0,0.3)";
 
-        let btnContainer = document.createElement("div");
-        btnContainer.id = "ecms-timecard-toolbar";
-        btnContainer.style.position = "fixed";
-        btnContainer.style.top = "10px";
-        btnContainer.style.right = "10px";
-        btnContainer.style.zIndex = "9999";
-        btnContainer.style.background = "white";
-        btnContainer.style.padding = "10px";
-        btnContainer.style.border = "2px solid black";
-        btnContainer.style.borderRadius = "5px";
-        btnContainer.style.boxShadow = "2px 2px 10px rgba(0,0,0,0.3)";
+        const saveBtn = document.createElement("button");
+        saveBtn.innerText = "Save Timecard";
+        saveBtn.style.cssText = "margin:5px; padding:6px; background:#4CAF50; color:white;";
+        saveBtn.onclick = saveTimecard;
 
-        let saveButton = document.createElement("button");
-        saveButton.innerText = "Save Timecard";
-        saveButton.style.margin = "5px";
-        saveButton.onclick = saveTimecard;
+        const pasteBtn = document.createElement("button");
+        pasteBtn.innerText = "Paste Timecard";
+        pasteBtn.style.cssText = "margin:5px; padding:6px; background:#2196F3; color:white;";
+        pasteBtn.onclick = pasteTimecard;
 
-        let pasteButton = document.createElement("button");
-        pasteButton.innerText = "Paste All Timecard Rows";
-        pasteButton.style.margin = "5px";
-        pasteButton.onclick = pasteTimecard;
-
-        btnContainer.appendChild(saveButton);
-        btnContainer.appendChild(pasteButton);
-        header.appendChild(btnContainer);
+        container.appendChild(saveBtn);
+        container.appendChild(pasteBtn);
+        document.body.appendChild(container);
     }
 
-    function observeDOM() {
-        const observer = new MutationObserver(() => {
-            addButtons();
-        });
-
-        observer.observe(document.body, { childList: true, subtree: true });
+    function waitForTable() {
+        const interval = setInterval(() => {
+            const table = document.querySelector("#form1\\:subfile");
+            if (table) {
+                addButtons();
+                clearInterval(interval);
+            }
+        }, 500);
     }
 
-    window.addEventListener("load", () => {
-        addButtons();
-        observeDOM();
+    document.addEventListener("mousedown", (e) => {
+        if (e.button === 3) {
+            e.preventDefault();
+            e.stopPropagation();
+            pasteTimecard();
+        } else if (e.button === 4) {
+            e.preventDefault();
+            e.stopPropagation();
+            saveTimecard();
+        }
     });
 
+    window.addEventListener("load", waitForTable);
 })();

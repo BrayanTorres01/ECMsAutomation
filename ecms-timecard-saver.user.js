@@ -5,6 +5,7 @@
 // @description  Saves & pastes selected fields in timecard. Mouse Button 4 = Paste, 5 = Save. Author: Brayan
 // @author       Brayan
 // @match        https://cvcholdings.ecmserp.com/ecms/*
+// @match        http://10.100.82.83:10000/ecms/*
 // @grant        none
 // ==/UserScript==
 
